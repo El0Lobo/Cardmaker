@@ -1,0 +1,259 @@
+/* ===============================
+   THEME
+   =============================== */
+* { box-sizing: border-box; }
+:root{
+  --bg:      #0f1115;
+  --panel:   #151821;
+  --ink:     #eaf0ff;
+  --muted:   #93a1b2;
+  --accent:  #6ea8fe;
+  --border:  #242b3a;
+  --field:   #0f1420;
+}
+html,body { height:100%; }
+body{
+  margin:0;
+  color:var(--ink);
+  font:14px/1.4 Inter,system-ui,Segoe UI,Arial,sans-serif;
+  background:linear-gradient(180deg,#0c0f14,#0d1117 50%,#0c0f14);
+}
+h1,h2,h3{ margin:0 0 .5rem 0; }
+h1{ font-size:1.1rem; }
+h2{ font-size:.98rem; color:#d7e3ff; }
+h3{ font-size:.92rem; color:#cddbff; margin-top:.6rem; }
+.muted{ color:var(--muted); font-size:.9rem; }
+.hidden{ display:none !important; }
+
+/* ===============================
+   LAYOUT
+   =============================== */
+.app-header,.app-footer{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:.7rem 1rem; background:var(--panel); border-bottom:1px solid var(--border);
+}
+.app-footer{ border-top:1px solid var(--border); border-bottom:none; }
+.app{
+  display:grid; grid-template-columns: 340px 1fr;
+  gap:1rem; padding:1rem; min-height:calc(100vh - 110px);
+}
+
+/* ===============================
+   SIDEBAR (COMPACT + STICKY)
+   =============================== */
+.sidebar{ position:relative; min-width:300px; max-width:340px; }
+.sidebar-inner{
+  top:1rem;
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:.75rem;
+  
+  overflow-y:auto; overflow-x:hidden;
+  display:flex; flex-direction:column; gap:.75rem;
+}
+.sidebar section{
+  background:#111625;
+  border:1px solid #2a3345;
+  border-radius:12px;
+  padding:.7rem .75rem;
+}
+.sidebar h2{ margin:0 0 .4rem 0; }
+.sidebar h3{ margin:.45rem 0 .35rem 0; }
+
+/* ===============================
+   FORMS
+   =============================== */
+label{
+  display:flex; align-items:center; gap:.45rem;
+  margin:.25rem 0; white-space:normal;
+}
+
+/* scope controls to inputs living INSIDE labels */
+label > input,
+label > select,
+label > textarea{
+  flex:1 1 auto; min-width:0;
+  background:var(--field); color:var(--ink);
+  border:1px solid #2a3345; border-radius:.5rem;
+  padding:.34rem .5rem; min-height:32px; font-size:13px;
+}
+textarea{ resize:vertical; }
+input[type="number"]{ max-width:100px; }
+input[type="color"]{
+  width:36px; min-width:36px; height:28px; padding:0; border-radius:.35rem;
+}
+
+/* checkbox chips (not for the .grow pair rows) */
+label:not(.grow):has(> input[type="checkbox"]){
+  background:#0e1420; border:1px solid #24304a; border-radius:.55rem;
+  padding:.25rem .45rem; gap:.45rem; flex:0 0 auto;
+}
+label.grow:has(> input[type="checkbox"]){ background:transparent; border:0; padding:0; }
+
+.file-btn{
+  position:relative; overflow:hidden; justify-content:center;
+  padding:.34rem .6rem; border-radius:.55rem;
+  background:linear-gradient(180deg,#2a3345,#1b2232);
+  border:1px solid #3a4560; color:var(--ink);
+}
+.file-btn input[type="file"]{ position:absolute; inset:0; opacity:0; cursor:pointer; }
+
+button{
+  background:linear-gradient(180deg,#2a3345,#1b2232);
+  color:var(--ink); border:1px solid #3a4560;
+  border-radius:.55rem; padding:.38rem .6rem; font-size:13px; cursor:pointer;
+}
+button:hover{ filter:brightness(1.07); }
+button:active{ transform:translateY(1px); }
+button.primary{ border-color:#4b6fff; }
+input[type="range"]{ accent-color:var(--accent); }
+.bg-full{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:auto; height:auto; z-index:0; }
+
+/* rows + grids */
+.row{ display:flex; align-items:center; gap:.5rem; flex-wrap:nowrap; }
+.row1{ display:none; align-items:center; gap:.5rem; flex-wrap:nowrap; }
+.row > label{ min-width:0; }
+.row > label.grow{ flex:1 1 0; }
+.grid-1{ display:grid; gap:.5rem; }
+.grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+.grid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:.5rem; }
+.grow{ flex:1 1 0; min-width:0; }
+
+/* keep “Units / DPI” tidy (DPI label has inline width from HTML) */
+.sidebar .row:first-of-type label[style*="width"] input{ width:100%; }
+
+/* hide unused UI */
+.tabs.small{ display:none !important; }
+/* old background pickers are not needed */
+
+label:has(#bgImgFront),  label:has(#bgImgBack){ display:none !important; }
+
+/* ===============================
+   CANVAS / EDITOR
+   =============================== */
+.stage{ display:flex; flex-direction:column; gap:1rem; }
+
+.canvas-tabs{ display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+.canvas-tab{
+  background:#111625; border:1px solid #2a3345; border-radius:10px;
+  padding:.35rem; display:flex; flex-direction:column; align-items:center;
+}
+.canvas-tab.active{ outline:1px solid #4b6fff; }
+.canvas-tab img{
+  width:64px; height:40px; object-fit:cover;
+  border:1px solid #2f3b55; border-radius:4px; display:block;
+}
+
+.canvas-wrap{
+  background:radial-gradient(1200px 800px at 40% 40%, rgba(110,168,254,.08), transparent 70%);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:1rem;
+  display:flex; justify-content:center; align-items:center;
+}
+.canvas-holder{ position:relative; }
+canvas{
+  background:#fff; border-radius:8px;
+  box-shadow:0 10px 30px rgba(0,0,0,.2); display:block;
+}
+.overlay{ position:absolute; inset:0; pointer-events:none; z-index:4; }
+.banner{
+  position:absolute; inset:0; z-index:3;
+  display:flex; align-items:center; justify-content:center;
+  color:#fff; font-weight:600;
+  background:rgba(0,0,0,.55); backdrop-filter:blur(2px);
+  border-radius:8px;
+}
+
+/* selection handles */
+.sel-outline{ position:absolute; border:1.5px dashed rgba(110,168,254,.9); pointer-events:none; }
+.handle{
+  position:absolute; width:12px; height:12px;
+  border:2px solid #fff; background:#6ea8fe;
+  box-shadow:0 0 0 1px #000; border-radius:2px; pointer-events:auto;
+}
+.handle[data-role="rot"]{ background:#ffcd57; }
+
+/* helper boxes */
+.subbox{ border:1px dashed #33405d; border-radius:.6rem; padding:.6rem; margin:.5rem 0; }
+
+/* ===============================
+   3D PREVIEW
+   =============================== */
+.preview3d{
+  background:var(--panel); border:1px solid var(--border);
+  border-radius:14px; padding:1rem;
+  max-width: 90%;
+  min-width: 80%;
+  align-self: center;
+}
+.viewport{
+  width:100%; height:360px; border-radius:14px;
+  background:radial-gradient(600px 300px at 50% 30%, rgba(157,110,254,.12), transparent 60%);
+  perspective:1000px; overflow:hidden;
+  display:flex; justify-content:center; align-items:center;
+}
+.viewport.large{ height:520px; }
+.card3d{ position:relative; transform-style:preserve-3d; cursor:grab; transition:transform .1s linear; }
+.card3d.grabbing{ cursor:grabbing; }
+.face{
+  position:absolute; top:50%; left:50%;
+  transform:translate(-50%,-50%); /* JS adds Z/rot */
+  background-size:cover; background-position:center;
+  border:1px solid #1f2533; border-radius:4px;
+}
+.edge{
+  position:absolute; top:50%; left:50%;
+  transform:translate(-50%,-50%); /* JS positions 3D strips */
+  background:#fff;
+}
+.paper-ov{
+  position:absolute; inset:0;
+  background-size:cover; background-position:center;
+  opacity:.35; mix-blend-mode:multiply; pointer-events:none; border-radius:inherit;
+}
+
+/* ===============================
+   PRINT PREVIEW (A4 width)
+   =============================== */
+.print-preview-wrap{
+  margin-top:10px;
+  border:1px solid var(--border); border-radius:12px;
+  overflow:hidden; background:#0f1420;
+  display:flex; flex-direction:column; align-items:center;
+  padding-bottom:10px;
+}
+.print-preview-wrap > .title{
+  width:100%; padding:10px 12px;
+  color:#cddbff; font-weight:600;
+  background:#151821; border-bottom:1px solid var(--border);
+  box-sizing:border-box;
+}
+.print-preview-wrap iframe{
+  width:210mm; max-width:100%;
+  aspect-ratio:210 / 297; height:auto;
+  background:#fff; border:0; display:block;
+}
+
+/* ===============================
+   SCROLLBARS
+   =============================== */
+.sidebar-inner::-webkit-scrollbar{ width:10px; }
+.sidebar-inner::-webkit-scrollbar-thumb{
+  background:#1f2533; border:2px solid #151821; border-radius:10px;
+}
+.sidebar-inner::-webkit-scrollbar-track{ background:#0f1115; }
+
+/* ===============================
+   RESPONSIVE
+   =============================== */
+@media (max-width:1100px){
+  .app{ grid-template-columns:1fr; }
+  .sidebar{ max-width:100%; }
+  .viewport.large{ height:420px; }
+}
+@media (max-width:520px){
+  .sidebar .row{ flex-wrap:wrap; }
+  .grid-2, .grid-3{ grid-template-columns:1fr; }
+}

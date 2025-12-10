@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Business Card Maker</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/monolith.min.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <h1>Business Card Maker</h1>
+    <div class="right">
+      <button id="btnExportPDF" class="primary" title="Opens a print-ready A4 layout you can save as PDF">Export PDF (A4)</button>
+      <button id="btnDownloadProject" title="Download current project as JSON">Download Project</button>
+      <input type="file" id="btnLoadProject" accept=".card" title="Load a previously saved project (.card or JSON)" />
+    </div>
+  </header>
+
+  <main class="app">
+    <aside class="sidebar">
+      <div class="sidebar-inner">
+        <section>
+          <h2>Card Settings</h2>
+          <div class="row1">
+            <label class="grow">Units
+              <select id="units">
+                <option value="mm" selected>mm</option>
+                <option value="px">px</option>
+              </select>
+            </label>
+            <label style="width:130px;">DPI <input type="number" id="dpi" value="300" step="1" /></label>
+          </div>
+          <div class="grid-2">
+            <label>Width (mm) <input type="number" id="cardWidth" value="85" step="0.1"/></label>
+            <label>Height (mm)<input type="number" id="cardHeight" value="55" step="0.1"/></label>
+          </div>
+          <div class="grid-3">
+            <label>Bleed (mm) <input type="number" id="bleed" value="3" step="0.1" /></label>
+            <label>Gutter (mm) <input type="number" id="gutter" value="5" step="0.1" /></label>
+          </div>
+                  <div class="grid-4">
+            <label>Margin (mm) <input type="number" id="pageMargin" value="10" step="0.1" /></label>
+
+                  </div>
+          <div class="row">
+            <label class="grow"><input type="checkbox" id="cropMarks" checked /> Crop Marks</label>
+            <label class="grow"><input type="checkbox" id="trimBoxes" /> Trim Boxes</label>
+          </div>
+          <div class="row">
+            <label class="grow"><input type="checkbox" id="showBleed" /> Show Bleed Overlay</label>
+            <label class="grow"><input type="checkbox" id="showGrid" /> Show Grid & Snap</label>
+          </div>
+          <div class="row">
+            <label class="grow">Grid Spacing (mm)
+              <input type="number" id="gridSpacing" value="5" step="0.5" />
+            </label>
+            <label class="grow">Back Flip
+              <select id="backFlip">
+                <option value="none">None</option>
+                <option value="h">Horizontal (mirror columns)</option>
+                <option value="v">Vertical (mirror rows)</option>
+                <option value="hv">Both (H & V)</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section>
+          <h2>Side & Thumbs</h2>
+          <div class="tabs small">
+          </div>
+          <div class="grid-2">
+            <button id="btnAddText">+ Text</button>
+            <label class="file-btn">+ Image <input type="file" id="imgInput" accept="image/*"></label>
+          </div>
+          <div class="grid-2">
+            <button id="btnDelete">Delete</button>
+            <button id="btnDuplicate">Duplicate</button>
+          </div>
+
+          <h3>Selection</h3>
+          <div class="grid-2">
+            <button id="btnBringFwd">Bring Forward</button>
+            <button id="btnSendBack">Send Back</button>
+            <button id="btnFlipH">Flip H</button>
+            <button id="btnFlipV">Flip V</button>
+          </div>
+          <label>Rotation (°) <input type="range" id="rotation" min="-180" max="180" step="1" value="0"></label>
+          <label>Opacity <input type="range" id="opacity" min="0" max="1" step="0.01" value="1"></label>
+          <label>Lock <input type="checkbox" id="lock"></label>
+          <div class="grid-2" id="lockedTools">
+            <label>Locked Layers
+              <select id="lockedLayerList">
+                <option value="">None</option>
+              </select>
+            </label>
+            <button id="btnUnlockLayer" disabled>Unlock Layer</button>
+          </div>
+
+          <div id="textControls" class="hidden">
+            <h3>Text</h3>
+            <label>Content <textarea id="textContent" rows="3"></textarea></label>
+            <label>Font
+            <select id="fontFamily">
+                <option value="Inter,system-ui,Arial,sans-serif" selected>Inter / System Sans</option>
+                <option value="Arial,Helvetica,sans-serif">Arial</option>
+                <option value="'Helvetica Neue',Helvetica,Arial,sans-serif">Helvetica Neue</option>
+                <option value="Verdana,Geneva,sans-serif">Verdana</option>
+                <option value="Tahoma,Geneva,sans-serif">Tahoma</option>
+                <option value="'Trebuchet MS',Helvetica,sans-serif">Trebuchet MS</option>
+                <option value="Georgia,serif">Georgia</option>
+                <option value="Times New Roman,Times,serif">Times New Roman</option>
+                <option value="Palatino Linotype,Book Antiqua,Palatino,serif">Palatino</option>
+                <option value="'Courier New',Courier,monospace">Courier New</option>
+                <option value="'Lucida Console',Monaco,monospace">Lucida Console</option>
+                <option value="Impact,Charcoal,sans-serif">Impact</option>
+                <option value="'Comic Sans MS',cursive">Comic Sans MS</option>
+                <option value="'Gill Sans','Gill Sans MT',Calibri,sans-serif">Gill Sans</option>
+                <option value="'Franklin Gothic Medium','Arial Narrow Bold',sans-serif">Franklin Gothic</option>
+                <option value="Georgia,serif">Georgia</option>
+                <option value="'Courier New',monospace">Courier New</option>
+            </select>
+            </label>
+            <label class="file-btn small">Upload Font
+            <input type="file" id="uploadFont" accept=".ttf,.otf,.woff,.woff2" />
+            </label>
+
+            <div class="grid-3">
+              <label>Size (mm) <input type="number" id="fontSize" value="10" step="0.5"></label>
+              <label>Weight
+                <select id="fontWeight">
+                  <option>300</option><option selected>400</option><option>600</option><option>700</option><option>900</option>
+                </select>
+              </label>
+              <br>
+              <label>Align
+                <select id="textAlign">
+                  <option>left</option><option selected>center</option><option>right</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid-2">
+              <label>Fill <input type="color" id="fillStyle" value="#111111"></label>
+              <label>Outline <input type="color" id="strokeStyle" value="#000000"></label>
+            </div>
+            <label>Outline Width (px) <input type="number" id="lineWidth" value="0" step="0.5"></label>
+          </div>
+
+          <h3>Backgrounds</h3>
+          <div class="grid-2" style="display: none">
+            <label>Front Color <input type="color" id="bgColorFront" value="#ffffff" data-side="front"></label>
+            <label>Back Color <input type="color" id="bgColorBack" value="#ffffff" data-side="back"></label>
+          </div>
+          <div class="grid-2">
+            <div>
+                <label>Front</label>
+                <div id="picker-front"></div>
+            </div>
+            <div>
+                <label>Back</label>
+                <div id="picker-back"></div>
+            </div>
+            </div>
+          <div class="grid-2">
+            <label class="file-btn">BG Front <input type="file" id="bgImgFront" accept="image/*"></label>
+            <label class="file-btn">BG Back <input type="file" id="bgImgBack" accept="image/*"></label>
+          </div>
+
+          <h3>Back Modes</h3>
+          <label><input type="checkbox" id="sheetPatternMode"> Back is sheet-wide pattern (no margins)</label>
+          <div id="sheetPatternBox" class="subbox hidden">
+            <label class="file-btn">Pattern Image <input type="file" id="sheetPatternImg" accept="image/*"></label>
+            <div class="grid-2">
+              <label>Sheet Offset X (mm) <input type="number" id="sheetOffsetX" value="0" step="0.1"></label>
+              <label>Sheet Offset Y (mm) <input type="number" id="sheetOffsetY" value="0" step="0.1"></label>
+            </div>
+          </div>
+          <label><input type="checkbox" id="perCardBacks"> Enable per-card back overrides</label>
+          <div id="perCardBox" class="subbox hidden">
+            <label class="file-btn">Add back images (in order)
+              <input type="file" id="perCardBackFiles" accept="image/*" multiple>
+            </label>
+            <p class="muted">If fewer images than cards, the rest use the designed back.</p>
+          </div>
+
+          <h3>Back Offset (design)</h3>
+          <p class="muted">Use while designing the back to compensate printer shift.</p>
+          <div class="grid-2">
+            <label>Back Offset X (mm) <input type="number" id="backOffsetXmm" value="0" step="0.1"></label>
+            <label>Back Offset Y (mm) <input type="number" id="backOffsetYmm" value="0" step="0.1"></label>
+          </div>
+        </section>
+
+        <section>
+          <h2>3D Preview</h2>
+          <label>Thickness (mm) <input type="number" id="thickness" value="0.4" step="0.1"></label>
+          <label>3D Zoom <input type="range" id="zoom3D" min="0.5" max="2" step="0.01" value="1"></label>
+          <div class="grid-2">
+            <button id="btnUpdate3D">Update 3D</button>
+            <button id="btnReset3D">Reset View</button>
+          </div>
+          <p class="muted">Drag in the preview to rotate. Scroll over preview to zoom.</p>
+        </section>
+      </div>
+    </aside>
+
+    <section class="stage">
+      <!-- JS will inject the thumbnail-based canvas tabs here -->
+      <div class="canvas-tabs"></div>
+
+      <div class="canvas-wrap">
+        <div class="canvas-holder">
+          <canvas id="canvasFront" width="1200" height="776"></canvas>
+          <canvas id="canvasBack" width="1200" height="776" class="hidden"></canvas>
+          <div id="overlay" class="overlay"></div>
+        </div>
+      </div>
+
+      <div class="preview3d">
+        <div class="viewport large" id="viewport">
+          <div class="card3d" id="card3d">
+            <div class="face front" id="faceFront"></div>
+            <div class="face back" id="faceBack"></div>
+            <div class="edge edge1"></div>
+            <div class="edge edge2"></div>
+            <div class="edge edge3"></div>
+            <div class="edge edge4"></div>
+          </div>
+        </div>
+      </div>
+      <!-- The print preview is injected here by JS after the 3D preview -->
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>Pattern back fills the entire A4 sheet. Use back flip options to match your duplex printer (long/short edge).</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
