@@ -3,25 +3,50 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Business Card Maker</title>
+  <title>ACME's Business Card Maker</title>
+  <link rel="preload" href="OlivettiLettera22Typewriter.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/monolith.min.css"/>
   <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+  <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin" data-role="tinymce"></script>
 </head>
 <body>
   <header class="app-header">
-    <h1>Business Card Maker</h1>
-    <div class="right">
-      <button id="btnExportPDF" class="primary" title="Opens a print-ready A4 layout you can save as PDF">Export PDF (A4)</button>
-      <button id="btnDownloadProject" title="Download current project as JSON">Download Project</button>
-      <input type="file" id="btnLoadProject" accept=".card" title="Load a previously saved project (.card or JSON)" />
+    <div class="brand">
+      <div class="brand-copy">
+        <p class="eyebrow">A Company Making Everything</p>
+        <h1 class="app-title">Business Card Maker</h1>
+        <p class="tagline">A precision lab for bold, print-ready cards.</p>
+      </div>
+    </div>
+    <div class="right header-actions">
+      <button id="btnExportPDF" class="primary icon-btn" title="Opens a print-ready A4 layout you can save as PDF">
+        <img src="static/img/icon-export.svg" alt="" aria-hidden="true" />
+        <span>Export PDF (A4)</span>
+      </button>
+      <button id="btnDownloadProject" class="icon-btn" title="Download current project as JSON">
+        <img src="static/img/icon-download.svg" alt="" aria-hidden="true" />
+        <span>Download Project</span>
+      </button>
+      <label for="btnLoadProject" class="ghost-btn icon-btn" title="Load a previously saved project (.card or JSON)">
+        <img src="static/img/icon-upload.svg" alt="" aria-hidden="true" />
+        <span>Load Project</span>
+      </label>
+      <input type="file" id="btnLoadProject" accept=".card" title="Load a previously saved project (.card or JSON)" class="sr-only" />
+      <button id="btnResetProject" class="ghost-btn icon-btn danger" title="Clear the current canvas and start fresh">
+        <img src="static/img/icon-reset.svg" alt="" aria-hidden="true" />
+        <span>Reset</span>
+      </button>
     </div>
   </header>
 
   <main class="app">
     <aside class="sidebar">
       <div class="sidebar-inner">
-        <section>
+        <section class="panel panel-teal">
           <h2>Card Settings</h2>
           <div class="row1">
             <label class="grow">Units
@@ -67,11 +92,9 @@
           </div>
         </section>
 
-        <section>
+        <section class="panel panel-red">
           <h2>Side & Thumbs</h2>
-          <div class="tabs small">
-          </div>
-          <div class="grid-2">
+          <div class="panel-actions grid-2">
             <button id="btnAddText">+ Text</button>
             <label class="file-btn">+ Image <input type="file" id="imgInput" accept="image/*"></label>
           </div>
@@ -104,6 +127,7 @@
             <label>Content <textarea id="textContent" rows="3"></textarea></label>
             <label>Font
             <select id="fontFamily">
+                <option value="'OlivettiLettera22','Space Mono','IBM Plex Mono',monospace">Olivetti Lettera 22</option>
                 <option value="Inter,system-ui,Arial,sans-serif" selected>Inter / System Sans</option>
                 <option value="Arial,Helvetica,sans-serif">Arial</option>
                 <option value="'Helvetica Neue',Helvetica,Arial,sans-serif">Helvetica Neue</option>
@@ -127,7 +151,7 @@
             <input type="file" id="uploadFont" accept=".ttf,.otf,.woff,.woff2" />
             </label>
 
-            <div class="grid-3">
+            <div class="grid-2">
               <label>Size (mm) <input type="number" id="fontSize" value="10" step="0.5"></label>
               <label>Weight
                 <select id="fontWeight">
@@ -148,7 +172,7 @@
             <label>Outline Width (px) <input type="number" id="lineWidth" value="0" step="0.5"></label>
           </div>
 
-          <h3>Backgrounds</h3>
+          <h3>Background Colors</h3>
           <div class="grid-2" style="display: none">
             <label>Front Color <input type="color" id="bgColorFront" value="#ffffff" data-side="front"></label>
             <label>Back Color <input type="color" id="bgColorBack" value="#ffffff" data-side="back"></label>
@@ -193,10 +217,10 @@
           </div>
         </section>
 
-        <section>
+        <section class="panel panel-teal">
           <h2>3D Preview</h2>
           <label>Thickness (mm) <input type="number" id="thickness" value="0.4" step="0.1"></label>
-          <label>3D Zoom <input type="range" id="zoom3D" min="0.5" max="2" step="0.01" value="1"></label>
+          <label>3D Zoom <input type="range" id="zoom3D" min="0.5" max="2" step="0.01" value="0.8"></label>
           <div class="grid-2">
             <button id="btnUpdate3D">Update 3D</button>
             <button id="btnReset3D">Reset View</button>
@@ -215,6 +239,8 @@
           <canvas id="canvasFront" width="1200" height="776"></canvas>
           <canvas id="canvasBack" width="1200" height="776" class="hidden"></canvas>
           <div id="overlay" class="overlay"></div>
+          <div id="inlineEditorToolbar" class="inline-toolbar hidden"></div>
+          <div id="canvasTextEditor" class="canvas-inline-editor" contenteditable="true" spellcheck="false"></div>
         </div>
       </div>
 
@@ -235,7 +261,15 @@
   </main>
 
   <footer class="app-footer">
-    <span>Pattern back fills the entire A4 sheet. Use back flip options to match your duplex printer (long/short edge).</span>
+    <div class="footer-left">
+      <span>Pattern back fills the entire A4 sheet.<br>Use back flip options to match your duplex printer (long/short edge).</span>
+    </div>
+    <a class="footer-cta" href="https://acme-prototypes.com/downloads" target="_blank" rel="noopener">
+      Visit acme-prototypes.com<br>for more free stuff like this!
+    </a>
+    <a class="footer-logo" href="https://acme-prototypes.com/" target="_blank" rel="noopener">
+      <img src="ⒶCME.svg" alt="ACME Prototypes" class="brand-mark" />
+    </a>
   </footer>
 
   <script src="app.js"></script>

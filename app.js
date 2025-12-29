@@ -47,6 +47,8 @@
 
   const textControls = $("#textControls");
   const textContent = $("#textContent");
+  const canvasTextEditor = $("#canvasTextEditor");
+  const inlineEditorToolbar = $("#inlineEditorToolbar");
   const fontFamily = $("#fontFamily");
   const fontSize = $("#fontSize");
   const fontWeight = $("#fontWeight");
@@ -81,6 +83,7 @@
   const btnExportPDF = $("#btnExportPDF");
   const btnDownloadProject = $("#btnDownloadProject");
   const btnLoadProject = $("#btnLoadProject");
+  const btnResetProject = $("#btnResetProject");
 
   const thicknessInp = $("#thickness");
   const zoom3D = $("#zoom3D");
@@ -119,9 +122,10 @@
   let backDisabledOverlay = null;
   let printPreviewWrap = null;
   let printPreviewFrame = null;
+  let paperTypeSelect = null;
 
   // State
-  let state = {
+  const createEmptyState = () => ({
     side: "front",
     units: "mm",
     cardWidthMM: 85,
@@ -144,8 +148,17 @@
     back:  { layers: [] },
     selection: null,
     sheetPattern: { enabled: false, image: null, offsetMM: {x:0,y:0}, opacity: 1 },
-    perCard: { enabled: false, images: [] }
-  };
+    perCard: { enabled: false, images: [] },
+    customFonts: [],
+    paperType: "white"
+  });
+  let state = createEmptyState();
+  let selectionOverlayRect = null;
+  let inlineEditingLayerId = null;
+  let tinyOverlayEditor = null;
+  let tinyOverlayInitPromise = null;
+  const FONT_SIZE_OPTIONS = [4,6,8,10,12,14,16,18,24,32];
+  const inlineEditorIsVisible = ()=>!!(inlineEditingLayerId && canvasTextEditor && canvasTextEditor.classList.contains("active"));
 // === Inject Sheet Pattern Opacity control (0..1) ===
 (function injectPatternOpacityControl(){
   if (!sheetPatternBox) return;
@@ -190,6 +203,7 @@
 
   // ---- Fonts: standard list + helpers (top-level; used by multiple places) ----
   const STANDARD_FONTS = [
+    ["'OlivettiLettera22','Space Mono','IBM Plex Mono',monospace","Olivetti Lettera 22"],
     ["Inter,system-ui,Arial,sans-serif","Inter / System Sans"],
     ["Arial,Helvetica,sans-serif","Arial"],
     ["'Helvetica Neue',Helvetica,Arial,sans-serif","Helvetica Neue"],
@@ -207,6 +221,10 @@
     ["'Franklin Gothic Medium','Arial Narrow Bold',sans-serif","Franklin Gothic"]
   ];
 
+  const FONT_ALIAS_MAP = {
+    zai_OlivettiLettera22Typewriter: "'OlivettiLettera22','Space Mono','IBM Plex Mono',monospace"
+  };
+
   function ensureStandardFontsInSelect(selectEl){
     if (!selectEl) return;
     const existing = new Set([...selectEl.options].map(o=>o.value));
@@ -217,6 +235,57 @@
         selectEl.appendChild(opt);
       }
     });
+  }
+
+  function normalizeFontAliases(targetState = state){
+    ["front","back"].forEach(side=>{
+      const layers = targetState?.[side]?.layers || [];
+      layers.forEach(layer=>{
+        if (layer?.type !== "text") return;
+        const raw = (layer.fontFamily || "").trim();
+        const key = raw.replace(/^['"]+|['"]+$/g,"");
+        if (FONT_ALIAS_MAP[key]){
+          layer.fontFamily = FONT_ALIAS_MAP[key];
+        }
+      });
+    });
+  }
+
+  function renderState(clearInputs=false){
+    initUIFromState();
+    if (sheetPatternMode){
+      sheetPatternMode.checked = !!(state.sheetPattern?.enabled);
+      if (sheetPatternBox){
+        sheetPatternBox.classList.toggle("hidden", !state.sheetPattern.enabled);
+      }
+    }
+    if (typeof sheetOffsetX?.value !== "undefined"){
+      sheetOffsetX.value = state.sheetPattern?.offsetMM?.x || 0;
+    }
+    if (typeof sheetOffsetY?.value !== "undefined"){
+      sheetOffsetY.value = state.sheetPattern?.offsetMM?.y || 0;
+    }
+    if (perCardBacks){
+      perCardBacks.checked = !!state.perCard?.enabled;
+      if (perCardBox){
+        perCardBox.classList.toggle("hidden", !state.perCard.enabled);
+      }
+    }
+    if (clearInputs){
+      if (sheetPatternImg) sheetPatternImg.value = "";
+      if (perCardBackFiles) perCardBackFiles.value = "";
+    }
+    const patRange = document.getElementById("sheetPatternOpacity");
+    const patNum = document.getElementById("sheetPatternOpacityNum");
+    if (patRange) patRange.value = state.sheetPattern?.opacity ?? 1;
+    if (patNum) patNum.value = state.sheetPattern?.opacity ?? 1;
+    resizeCanvasToCard();
+    setSide("front");
+    redrawAll();
+    drawOverlay();
+    refreshPrintPreview();
+    update3DTextures(true);
+    applyPaperType(state.paperType || "white");
   }
 
   function updateSelectedTextFont(ff){
@@ -259,6 +328,7 @@
       text: "Your Name",
       fontFamily: fontFamily.value || "Inter,system-ui,Arial,sans-serif",
       fontWeight: fontWeight.value || "400",
+      fontStyle: "normal",
       fontSize: parseFloat(fontSize.value||"10"),
       align: textAlignSel.value || "center",
       fillStyle: fillStyleInp.value || "#111111",
@@ -341,14 +411,17 @@ function installPaperSelector(){
   // IMPORTANT: do NOT hide background controls anymore
   // (bgColorFront, bgColorBack, bgImgFront, bgImgBack remain visible & bound)
 
-  const paperSel = wrap.querySelector("#paperType");
-  paperSel.value = state.paperType || "white";
-  paperSel.addEventListener("change", ()=> applyPaperType(paperSel.value));
+  paperTypeSelect = wrap.querySelector("#paperType");
+  paperTypeSelect.value = state.paperType || "white";
+  paperTypeSelect.addEventListener("change", ()=> applyPaperType(paperTypeSelect.value));
 }
 
 
   function applyPaperType(kind){
     state.paperType = kind;
+    if (paperTypeSelect && paperTypeSelect.value !== kind){
+      paperTypeSelect.value = kind;
+    }
 
     // Update 3D face overlays
     ensurePaperOverlays();
@@ -390,8 +463,37 @@ function installPaperSelector(){
     ctx.restore();
   }
 
+  function measureLayerBox(layer, ctx){
+    if (layer.type === "image"){
+      const w = layer.image?.width || 0;
+      const h = layer.image?.height || 0;
+      return {
+        width: Math.max(20, w),
+        height: Math.max(20, h),
+        lineHeight: 0,
+        maxLineWidth: w,
+        anchorShiftX: 0,
+        fontPx: 0
+      };
+    }
+    const fontPx = Math.round(mmToPx(layer.fontSize));
+    const px = Math.max(8, fontPx);
+    const fontStyle = layer.fontStyle && layer.fontStyle!=="normal" ? `${layer.fontStyle} ` : "";
+    ctx.font = `${fontStyle}${layer.fontWeight} ${px}px ${layer.fontFamily}`;
+    const lines = (layer.text ?? "").split(/\r?\n/);
+    const lineHeight = px * 1.3;
+    const maxLineW = lines.reduce((m, ln)=>Math.max(m, ctx.measureText(ln).width), 0);
+    const pad = 20;
+    const width = Math.max(20, maxLineW + pad);
+    const height = Math.max(20, lineHeight * lines.length);
+    let anchorShiftX = 0;
+    if (layer.align === "left") anchorShiftX = maxLineW/2;
+    else if (layer.align === "right") anchorShiftX = -maxLineW/2;
+    return { width, height, lineHeight, maxLineWidth:maxLineW, anchorShiftX, fontPx:px };
+  }
+
   function drawLayer(ctx, layer){
-  ctx.save();
+    ctx.save();
   ctx.globalAlpha = layer.opacity ?? 1;
   ctx.translate(layer.x, layer.y);
   ctx.rotate(layer.rotation * Math.PI / 180);
@@ -404,7 +506,8 @@ function installPaperSelector(){
   } else if (layer.type === "text"){
     const fontPx = Math.round(mmToPx(layer.fontSize));
     const px = Math.max(8, fontPx);
-    ctx.font = `${layer.fontWeight} ${px}px ${layer.fontFamily}`;
+    const fontStyle = layer.fontStyle && layer.fontStyle !== "normal" ? `${layer.fontStyle} ` : "";
+    ctx.font = `${fontStyle}${layer.fontWeight} ${px}px ${layer.fontFamily}`;
     ctx.textAlign = layer.align;
     ctx.textBaseline = "middle";
 
@@ -552,6 +655,9 @@ pickrBack.on('save', (color, instance)=>{
     return page.layers.find(l => l.id === state.selection);
   }
   function setSelection(id){
+    if (inlineEditingLayerId && inlineEditingLayerId !== id){
+      closeInlineCanvasEditor(true);
+    }
     state.selection = id;
     updateInspector();
     drawOverlay();
@@ -620,16 +726,16 @@ pickrBack.on('save', (color, instance)=>{
     let ly = -sin*dx + cos*dy;
     lx /= (l.flipX?-l.scaleX:l.scaleX);
     ly /= (l.flipY?-l.scaleY:l.scaleY);
-    let w,h;
-    if (l.type==="image"){ w=l.image.width; h=l.image.height; }
-    else {
-      const ctx = getActiveCtx();
-      const fontPx = Math.round(mmToPx(l.fontSize));
-      ctx.font = `${l.fontWeight} ${Math.max(8,fontPx)}px ${l.fontFamily}`;
-      const mw = ctx.measureText(l.text).width + 20;
-      w = Math.max(20,mw); h = Math.max(20,fontPx*1.6);
-    }
-    return {hit: lx>=-w/2 && lx<=w/2 && ly>=-h/2 && ly<=h/2, w, h};
+    const ctx = getActiveCtx();
+    const metrics = measureLayerBox(l, ctx);
+    const halfW = metrics.width / 2;
+    const halfH = metrics.height / 2;
+    const shiftedX = lx + (metrics.anchorShiftX || 0);
+    return {
+      hit: shiftedX>=-halfW && shiftedX<=halfW && ly>=-halfH && ly<=halfH,
+      w: metrics.width,
+      h: metrics.height
+    };
   }
 
   // Canvas drag (move)
@@ -642,6 +748,7 @@ pickrBack.on('save', (color, instance)=>{
   }
   function onCanvasDown(ev){
     if (state.side==="back" && state.sheetPattern.enabled) return;
+    if (inlineEditingLayerId) closeInlineCanvasEditor(true);
     const cv = getActiveCanvas();
     const {x,y} = canvasToImageCoords(ev, cv);
     const page = getActivePage();
@@ -687,11 +794,25 @@ pickrBack.on('save', (color, instance)=>{
   canvasBack .addEventListener("mousedown", onCanvasDown);
   window.addEventListener("mousemove", onCanvasMove);
   window.addEventListener("mouseup", onCanvasUp);
+  function onCanvasDoubleClick(ev){
+    if (state.side==="back" && state.sheetPattern.enabled) return;
+    const cv = getActiveCanvas();
+    const {x,y} = canvasToImageCoords(ev, cv);
+    const l = getSelection();
+    if (!l || l.type!=="text") return;
+    const hit = pointInLayer(l,x,y);
+    if (!hit.hit) return;
+    ev.preventDefault();
+    openInlineCanvasEditor();
+  }
+  canvasFront.addEventListener("dblclick", onCanvasDoubleClick);
+  canvasBack.addEventListener("dblclick", onCanvasDoubleClick);
 
   // Overlay DOM for handles
   const HANDLE_SIZE = 12;
   function drawOverlay(){
     overlayEl.innerHTML = "";
+    selectionOverlayRect = null;
     const l = getSelection();
     if (!l || l.locked) return;
     if (state.side === "back" && state.sheetPattern.enabled) return;
@@ -701,28 +822,8 @@ pickrBack.on('save', (color, instance)=>{
     const ctx = getActiveCtx();
 
     // ---- Measure the unscaled, unrotated local box of the layer ----
-    let w = 0, h = 0, maxLineW = 0, lineHeight = 0, anchorShiftX = 0;
-    if (l.type === "image"){
-      w = l.image.width;
-      h = l.image.height;
-    } else {
-      const fontPx = Math.round(mmToPx(l.fontSize));
-      const px = Math.max(8, fontPx);
-      ctx.font = `${l.fontWeight} ${px}px ${l.fontFamily}`;
-      const lines = (l.text ?? "").split(/\r?\n/);
-      lineHeight = px * 1.3;
-      maxLineW = lines.reduce((m, ln)=>Math.max(m, ctx.measureText(ln).width), 0);
-      const pad = 20;                         // visual padding for handles
-      w = Math.max(20, maxLineW + pad);
-      h = Math.max(20, lineHeight * lines.length);
-
-      // ---- Horizontal anchor shift based on text alignment ----
-      // Canvas draws at x=0 with textAlign=left|center|right.
-      // Our overlay box is centered at local x=0, so shift it to match.
-      if (l.align === "left")  anchorShiftX =  maxLineW / 2;
-      if (l.align === "right") anchorShiftX = -maxLineW / 2;
-      // center -> 0
-    }
+    const metrics = measureLayerBox(l, ctx);
+    const { width:w, height:h, anchorShiftX, lineHeight } = metrics;
 
     // ---- Helpers to convert local -> image -> screen ----
     function localToImage(ix, iy){
@@ -761,6 +862,20 @@ pickrBack.on('save', (color, instance)=>{
     const maxX = Math.max(ptsScreen.tl.x, ptsScreen.tr.x, ptsScreen.bl.x, ptsScreen.br.x) - rect.left;
     const minY = Math.min(ptsScreen.tl.y, ptsScreen.tr.y, ptsScreen.bl.y, ptsScreen.br.y) - rect.top;
     const maxY = Math.max(ptsScreen.tl.y, ptsScreen.tr.y, ptsScreen.bl.y, ptsScreen.br.y) - rect.top;
+    selectionOverlayRect = {
+      left:minX,
+      top:minY,
+      width:maxX - minX,
+      height:maxY - minY,
+      centerX: minX + (maxX - minX)/2,
+      centerY: minY + (maxY - minY)/2,
+      rotation: l.rotation || 0,
+      scaleX: rect.width / cv.width,
+      scaleY: rect.height / cv.height,
+      layerId: l.id,
+      fontPxCss: l.type==="text" ? Math.max(8, Math.round(mmToPx(l.fontSize))) * (rect.height / cv.height) : null,
+      lineHeightCss: l.type==="text" ? lineHeight * (rect.height / cv.height) : null
+    };
 
     const outline = document.createElement("div");
     outline.className = "sel-outline";
@@ -866,19 +981,9 @@ pickrBack.on('save', (color, instance)=>{
         const dly = -sin*dx + cos*dy;
 
         // Measure the START box (don’t use the live w/h while dragging)
-        let w0 = 0, h0 = 0;
-        if (start.type === "image"){
-          w0 = start.image.width; h0 = start.image.height;
-        } else {
-          const fontPx0 = Math.round(mmToPx(start.fontSize));
-          const px0 = Math.max(8, fontPx0);
-          ctx.font = `${start.fontWeight} ${px0}px ${start.fontFamily}`;
-          const lines0 = (start.text ?? "").split(/\r?\n/);
-          const lineH0 = px0 * 1.3;
-          const maxW0 = lines0.reduce((m, ln)=>Math.max(m, ctx.measureText(ln).width), 0);
-          w0 = Math.max(20, maxW0 + 20);
-          h0 = Math.max(20, lineH0 * lines0.length);
-        }
+        const metrics0 = measureLayerBox(start, ctx);
+        const w0 = metrics0.width;
+        const h0 = metrics0.height;
 
         function applyScale(signX, signY){
           const dxLocal = (signX||0)*dlx;
@@ -923,12 +1028,330 @@ pickrBack.on('save', (color, instance)=>{
       window.removeEventListener("mousemove", onHdMove);
       hdDrag = null;
     }
+    if (inlineEditingLayerId) updateInlineEditorPosition();
   }
 
   // Inspector links
   rotRange.addEventListener("input", ()=>{ const s=getSelection(); if(s){ s.rotation=parseFloat(rotRange.value)||0; drawOverlay(); redrawAll(); }});
   opacityRange.addEventListener("input", ()=>{ const s=getSelection(); if(s){ s.opacity=parseFloat(opacityRange.value)||1; redrawAll(); }});
   lockChk.addEventListener("change", ()=>{ const s=getSelection(); if(s){ s.locked=lockChk.checked; drawOverlay(); redrawAll(); }});
+
+  function normalizeEditorText(str=""){
+    return str.replace(/\r/g,"").replace(/\u00a0/g," ").replace(/\t/g," ");
+  }
+  function escapeHtml(str=""){
+    return str
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/\"/g,"&quot;")
+      .replace(/'/g,"&#39;");
+  }
+  function textToHtml(str=""){
+    if (!str) return "";
+    return str.split(/\n/).map(line => line ? escapeHtml(line) : "&nbsp;").join("<br>");
+  }
+  function refreshInlineEditorToolbar(){
+    if (tinyOverlayEditor){
+      tinyOverlayEditor.dispatch("cardmaker-state");
+    }
+  }
+  function loadTinyScript(){
+    return new Promise((resolve,reject)=>{
+      if (typeof tinymce !== "undefined") return resolve();
+      const script = document.querySelector('script[data-role="tinymce"]');
+      if (!script){
+        reject(new Error("TinyMCE script not found"));
+        return;
+      }
+      script.addEventListener("load", ()=>resolve(), { once:true });
+      script.addEventListener("error", ()=>reject(new Error("TinyMCE failed to load")), { once:true });
+    });
+  }
+
+  function applyToolbarUpdate(overrides){
+    commitTextControlValues({ ...overrides, skipInlineContent:true });
+  }
+  function registerTinyToolbar(editor){
+    editor.ui.registry.addMenuButton("cardfont",{
+      text:"Font",
+      fetch:(callback)=>{
+        callback(STANDARD_FONTS.map(([value,label])=>({
+          type:"menuitem",
+          text:label,
+          onAction:()=>applyToolbarUpdate({ fontFamily:value })
+        })));
+      }
+    });
+    editor.ui.registry.addMenuButton("cardfontsize",{
+      text:"Size",
+      fetch:(callback)=>{
+        callback(FONT_SIZE_OPTIONS.map(size=>({
+          type:"menuitem",
+          text:`${size} mm`,
+          onAction:()=>applyToolbarUpdate({ fontSize:size })
+        })));
+      }
+    });
+    editor.ui.registry.addMenuButton("cardalign",{
+      text:"Align",
+      fetch:(callback)=>{
+        callback([
+          { text:"Left", value:"left" },
+          { text:"Center", value:"center" },
+          { text:"Right", value:"right" }
+        ].map(item=>({
+          type:"menuitem",
+          text:item.text,
+          onAction:()=>applyToolbarUpdate({ align:item.value })
+        })));
+      }
+    });
+    editor.ui.registry.addToggleButton("cardbold",{
+      icon:"bold",
+      tooltip:"Bold",
+      onAction:()=>{
+        const l = getSelection();
+        if (!l || l.type!=="text") return;
+        const weight = parseInt(l.fontWeight||"400",10) >= 600 ? "400" : "700";
+        applyToolbarUpdate({ fontWeight:weight });
+      },
+      onSetup:(api)=>{
+        const handler = ()=>{
+          const l = getSelection();
+          api.setActive(!!l && l.type==="text" && parseInt(l.fontWeight||"400",10) >= 600);
+        };
+        editor.on("cardmaker-state", handler);
+        handler();
+        return ()=>editor.off("cardmaker-state", handler);
+      }
+    });
+    editor.ui.registry.addToggleButton("carditalic",{
+      icon:"italic",
+      tooltip:"Italic",
+      onAction:()=>{
+        const l = getSelection();
+        if (!l || l.type!=="text") return;
+        const next = (l.fontStyle && l.fontStyle!=="normal") ? "normal" : "italic";
+        applyToolbarUpdate({ fontStyle:next });
+      },
+      onSetup:(api)=>{
+        const handler = ()=>{
+          const l = getSelection();
+          api.setActive(!!l && l.type==="text" && l.fontStyle === "italic");
+        };
+        editor.on("cardmaker-state", handler);
+        handler();
+        return ()=>editor.off("cardmaker-state", handler);
+      }
+    });
+    editor.ui.registry.addButton("cardcolor",{
+      icon:"color-picker",
+      tooltip:"Text Color",
+      onAction:()=>{
+        const l = getSelection();
+        const current = l?.fillStyle || "#111111";
+        editor.windowManager.open({
+          title:"Text Color",
+          body:{
+            type:"panel",
+            items:[{ type:"colorinput", name:"color", label:"Color" }]
+          },
+          initialData:{ color: current },
+          buttons:[
+            { type:"cancel", text:"Cancel" },
+            { type:"submit", text:"Apply", primary:true }
+          ],
+          onSubmit(api){
+            const data = api.getData();
+            if (data?.color){
+              applyToolbarUpdate({ fillStyle:data.color });
+            }
+            api.close();
+          }
+        });
+      }
+    });
+  }
+
+  function ensureTinyOverlayEditor(){
+    if (tinyOverlayEditor) return Promise.resolve(tinyOverlayEditor);
+    if (tinyOverlayInitPromise) return tinyOverlayInitPromise;
+    tinyOverlayInitPromise = loadTinyScript().then(()=>{
+      const baseConfig = {
+        target: canvasTextEditor,
+        inline: true,
+        menubar: "file edit view insert format tools table help",
+        toolbar_mode: "sliding",
+        toolbar_sticky: true,
+        toolbar: "undo redo | cardfont cardfontsize | bold italic underline | cardalign | bullist numlist outdent indent | cardcolor | removeformat",
+        skin: "oxide-dark",
+        content_css: false,
+        setup(editor){
+          registerTinyToolbar(editor);
+          editor.on("input change keyup", ()=>{
+            if (!inlineEditingLayerId) return;
+            const text = normalizeEditorText(editor.getContent({ format:"text" }));
+            if (textContent && textContent.value !== text){
+              textContent.value = text;
+            }
+            commitTextControlValues({ text, skipInlineContent:true });
+          });
+          editor.on("keydown", evt=>{
+            if (evt.key === "Escape"){
+              evt.preventDefault();
+              closeInlineCanvasEditor(false);
+            }
+            if ((evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))){
+              evt.preventDefault();
+              closeInlineCanvasEditor(true);
+            }
+          });
+          editor.on("blur", ()=>{
+            if (inlineEditingLayerId){
+              closeInlineCanvasEditor(true);
+            }
+          });
+        }
+      };
+      if (inlineEditorToolbar){
+        baseConfig.fixed_toolbar_container = "#inlineEditorToolbar";
+      }
+      return tinymce.init(baseConfig);
+    }).then(editors=>{
+      tinyOverlayEditor = editors[0];
+      tinyOverlayInitPromise = null;
+      return tinyOverlayEditor;
+    }).catch(err=>{
+      tinyOverlayInitPromise = null;
+      console.error("TinyMCE inline editor failed", err);
+      throw err;
+    });
+    return tinyOverlayInitPromise;
+  }
+  function commitTextControlValues(opts={}){
+    const l = getSelection(); if (!l || l.type!=="text") return;
+    if (opts.text !== undefined && textContent) textContent.value = opts.text;
+    if (opts.fontFamily !== undefined && fontFamily) fontFamily.value = opts.fontFamily;
+    if (opts.fontSize !== undefined && fontSize) fontSize.value = opts.fontSize;
+    if (opts.fontWeight !== undefined && fontWeight) fontWeight.value = opts.fontWeight;
+    if (opts.align !== undefined && textAlignSel) textAlignSel.value = opts.align;
+    if (opts.fillStyle !== undefined && fillStyleInp) fillStyleInp.value = opts.fillStyle;
+
+    l.text = textContent.value;
+    l.fontFamily = fontFamily.value;
+    l.fontSize = parseFloat(fontSize.value)||10;
+    l.fontWeight = fontWeight.value;
+    l.align = textAlignSel.value;
+    l.fillStyle = fillStyleInp.value;
+    l.strokeStyle = strokeStyleInp.value;
+    l.lineWidth = parseFloat(lineWidthInp.value)||0;
+    l.fontStyle = opts.fontStyle !== undefined ? opts.fontStyle : (l.fontStyle || "normal");
+
+    redrawAll();
+    drawOverlay();
+
+    if (inlineEditingLayerId && l.id === inlineEditingLayerId){
+      if (!opts.skipInlineContent){
+        if (tinyOverlayEditor){
+          tinyOverlayEditor.setContent(textToHtml(l.text || ""), { format:'html' });
+        } else if (canvasTextEditor){
+          canvasTextEditor.textContent = l.text || "";
+        }
+      }
+      updateInlineEditorStyles(l);
+    }
+    refreshInlineEditorToolbar();
+  }
+  function updateInlineEditorPosition(){
+    if (!canvasTextEditor || !inlineEditingLayerId || !selectionOverlayRect) return;
+    if (!inlineEditorIsVisible()) return;
+    if (selectionOverlayRect.layerId !== inlineEditingLayerId){
+      canvasTextEditor.style.display = "none";
+      canvasTextEditor.classList.remove("active");
+      return;
+    }
+    const l = getSelection();
+    if (!l || l.id !== inlineEditingLayerId){
+      canvasTextEditor.style.display = "none";
+      canvasTextEditor.classList.remove("active");
+      return;
+    }
+    const b = selectionOverlayRect;
+    const scaleY = b.scaleY || b.scaleX || 1;
+    canvasTextEditor.style.display = "block";
+    canvasTextEditor.style.left = `${b.centerX}px`;
+    canvasTextEditor.style.top = `${b.centerY}px`;
+    canvasTextEditor.style.width = `${Math.max(80,b.width)}px`;
+    canvasTextEditor.style.minHeight = `${Math.max(40,b.height)}px`;
+    canvasTextEditor.style.transform = `translate(-50%,-50%) rotate(${l.rotation||0}deg)`;
+    const fontPx = b.fontPxCss || Math.max(12, Math.round(mmToPx(l.fontSize) * scaleY));
+    canvasTextEditor.style.fontSize = `${fontPx}px`;
+    canvasTextEditor.style.lineHeight = b.lineHeightCss ? `${b.lineHeightCss}px` : "1.4";
+  }
+  function updateInlineEditorStyles(layer){
+    if (!canvasTextEditor || !layer) return;
+    const target = tinyOverlayEditor ? tinyOverlayEditor.getBody() : canvasTextEditor;
+    const caretColor = layer.fillStyle || "#111";
+    target.style.fontFamily = layer.fontFamily;
+    target.style.fontWeight = layer.fontWeight;
+    target.style.fontStyle = layer.fontStyle || "normal";
+    target.style.textAlign = layer.align;
+    target.style.color = "transparent";
+    target.style.background = "transparent";
+    target.style.textShadow = "none";
+    target.style.caretColor = caretColor;
+  }
+  async function openInlineCanvasEditor(){
+    const l = getSelection();
+    if (!l || l.type!=="text" || !canvasTextEditor || !selectionOverlayRect) return;
+    inlineEditingLayerId = l.id;
+    canvasTextEditor.classList.add("active");
+    updateInlineEditorPosition();
+    canvasTextEditor.dataset.layerId = l.id;
+    canvasTextEditor.style.display = "block";
+    canvasTextEditor.textContent = l.text || "";
+    if (inlineEditorToolbar){
+      inlineEditorToolbar.classList.add("visible");
+      inlineEditorToolbar.classList.remove("hidden");
+    }
+    try{
+      const editor = await ensureTinyOverlayEditor();
+      editor.setContent(textToHtml(l.text || ""));
+      updateInlineEditorStyles(l);
+      refreshInlineEditorToolbar();
+      editor.focus();
+      updateInlineEditorPosition();
+    }catch(err){
+      console.error("Inline editor unavailable:", err);
+      canvasTextEditor.textContent = l.text || "";
+      canvasTextEditor.focus({ preventScroll:true });
+    }
+  }
+  function closeInlineCanvasEditor(save){
+    if (!inlineEditingLayerId || !canvasTextEditor) return;
+    if (save){
+      let newText = "";
+      if (tinyOverlayEditor){
+        newText = normalizeEditorText(tinyOverlayEditor.getContent({ format:"text" }));
+      } else {
+        newText = normalizeEditorText(canvasTextEditor.textContent || "");
+      }
+      if (textContent){
+        commitTextControlValues({ text:newText, skipInlineContent:true });
+      }
+    }
+    inlineEditingLayerId = null;
+    canvasTextEditor.style.display = "none";
+    canvasTextEditor.classList.remove("active");
+    canvasTextEditor.textContent = "";
+    if (inlineEditorToolbar){
+      inlineEditorToolbar.classList.remove("visible");
+      inlineEditorToolbar.classList.add("hidden");
+    }
+    redrawAll();
+    drawOverlay();
+  }
 
   // Text controls binding
   function updateTextControls(l){
@@ -942,21 +1365,53 @@ pickrBack.on('save', (color, instance)=>{
     fillStyleInp.value = l.fillStyle;
     strokeStyleInp.value = l.strokeStyle;
     lineWidthInp.value = l.lineWidth;
+    if (inlineEditingLayerId && l.id === inlineEditingLayerId){
+      if (tinyOverlayEditor){
+        tinyOverlayEditor.setContent(textToHtml(l.text || ""));
+        updateInlineEditorStyles(l);
+        refreshInlineEditorToolbar();
+      } else if (canvasTextEditor){
+        canvasTextEditor.textContent = l.text || "";
+      }
+      updateInlineEditorPosition();
+    }
   }
-  [textContent,fontFamily,fontSize,fontWeight,textAlignSel,fillStyleInp,strokeStyleInp,lineWidthInp].forEach(el=>{
-    el.addEventListener("input", ()=>{
-      const l = getSelection(); if (!l || l.type!=="text") return;
-      l.text = textContent.value;
-      l.fontFamily = fontFamily.value;
-      l.fontSize = parseFloat(fontSize.value)||10;
-      l.fontWeight = fontWeight.value;
-      l.align = textAlignSel.value;
-      l.fillStyle = fillStyleInp.value;
-      l.strokeStyle = strokeStyleInp.value;
-      l.lineWidth = parseFloat(lineWidthInp.value)||0;
-      redrawAll();
+  if (textContent){
+    textContent.addEventListener("input", ()=>{
+      commitTextControlValues();
     });
+  }
+  [fontFamily,fontSize,fontWeight,textAlignSel,fillStyleInp,strokeStyleInp,lineWidthInp].forEach(el=>{
+    if (!el) return;
+    el.addEventListener("input", commitTextControlValues);
   });
+  if (canvasTextEditor){
+    canvasTextEditor.addEventListener("input", ()=>{
+      if (tinyOverlayEditor || !inlineEditingLayerId) return;
+      const l = getSelection();
+      if (!l || l.id !== inlineEditingLayerId) return;
+      const val = normalizeEditorText(canvasTextEditor.textContent || "");
+      if (textContent) textContent.value = val;
+      commitTextControlValues({ text:val, skipInlineContent:true });
+    });
+    canvasTextEditor.addEventListener("blur", ()=>{
+      if (!tinyOverlayEditor){
+        closeInlineCanvasEditor(true);
+      }
+    });
+    canvasTextEditor.addEventListener("keydown", (e)=>{
+      if (!tinyOverlayEditor){
+        if (e.key === "Escape"){
+          e.preventDefault();
+          closeInlineCanvasEditor(false);
+        }
+        if ((e.key === "Enter" && (e.metaKey || e.ctrlKey))){
+          e.preventDefault();
+          closeInlineCanvasEditor(true);
+        }
+      }
+    });
+  }
 
   function updateInspector(){
     const l = getSelection();
@@ -1778,6 +2233,105 @@ btnDownloadProject.addEventListener("click", async ()=>{
 });
 
 // ---- IMPORT: read .card, rebuild state, reload assets & fonts
+async function hydrateStateFromZip(zip){
+  const projFile = zip.file("project.json");
+  if (!projFile) throw new Error("Not a valid .card file (missing project.json).");
+  const manifest = JSON.parse(await projFile.async("string"));
+
+  // helper to load an image from a zip path (returns HTMLImageElement or null)
+  async function loadImg(path){
+    if (!path) return null;
+    const zf = zip.file(path);
+    if (!zf) return null;
+    const blob = await zf.async("blob");
+    return await new Promise(res=>{
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = ()=>res(img);
+      img.onerror = ()=>res(null);
+      img.src = url;
+    });
+  }
+
+  // helper to turn zip path into a blob URL
+  async function blobURL(path){
+    const zf = zip.file(path);
+    if (!zf) return null;
+    const blob = await zf.async("blob");
+    return URL.createObjectURL(blob);
+  }
+
+  // Start from current state to preserve runtime refs, then overwrite
+  state = {...state, ...manifest, selection:null};
+  state.customFonts = [];
+  normalizeFontAliases(state);
+
+  // Backgrounds
+  if (manifest.bg?.front?.image) state.bg.front.image = await loadImg(manifest.bg.front.image);
+  else state.bg.front.image = null;
+
+  if (manifest.bg?.back?.image) state.bg.back.image  = await loadImg(manifest.bg.back.image);
+  else state.bg.back.image = null;
+
+  // Sheet pattern
+  if (manifest.sheetPattern?.image){
+    state.sheetPattern.image = await loadImg(manifest.sheetPattern.image);
+  } else {
+    state.sheetPattern.image = null;
+  }
+
+  // Per-card backs
+  if (Array.isArray(manifest.perCard?.images)){
+    const imgs = [];
+    for (const p of manifest.perCard.images){
+      imgs.push(p ? (await loadImg(p)) : null);
+    }
+    state.perCard.images = imgs.filter(Boolean);
+  } else {
+    state.perCard.images = [];
+  }
+
+  // Layer images
+  async function hydrateLayers(side){
+    const layers = state[side].layers || [];
+    for (let i=0;i<layers.length;i++){
+      const L = layers[i];
+      if (L.type === "image" && typeof L.image === "string"){
+        L.image = await loadImg(L.image);
+      }
+    }
+  }
+  await hydrateLayers("front");
+  await hydrateLayers("back");
+
+  // Fonts
+  state.customFonts = state.customFonts || [];
+  if (Array.isArray(manifest.customFonts)){
+    for (const f of manifest.customFonts){
+      if (!f?.path) continue;
+      const url = await blobURL(f.path);
+      if (!url) continue;
+      try{
+        const face = new FontFace(f.name, `url(${url})`);
+        await face.load();
+        document.fonts.add(face);
+        // Keep a reference so future exports can include it again
+        state.customFonts.push({ name:f.name, url, ext: (f.path.match(/\.[a-z0-9]{2,5}$/i)||["",".ttf"])[0] });
+      }catch(err){
+        console.warn("Font failed to load:", f.name, err);
+      }
+    }
+  }
+
+  // Refresh UI / canvases
+  if (document.fonts?.ready){
+    try{
+      await document.fonts.ready;
+    }catch{}
+  }
+  renderState();
+}
+
 btnLoadProject.addEventListener("change", async (e)=>{
   const file = e.target.files[0]; 
   e.target.value = "";
@@ -1786,107 +2340,33 @@ btnLoadProject.addEventListener("change", async (e)=>{
   try{
     const JSZip = await ensureJSZip();
     const zip = await JSZip.loadAsync(file);
-
-    const projFile = zip.file("project.json");
-    if (!projFile){ alert("Not a valid .card file (missing project.json)."); return; }
-    const manifest = JSON.parse(await projFile.async("string"));
-
-    // helper to load an image from a zip path (returns HTMLImageElement or null)
-    async function loadImg(path){
-      if (!path) return null;
-      const zf = zip.file(path);
-      if (!zf) return null;
-      const blob = await zf.async("blob");
-      return await new Promise(res=>{
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = ()=>res(img);
-        img.onerror = ()=>res(null);
-        img.src = url;
-      });
-    }
-
-    // helper to turn zip path into a blob URL
-    async function blobURL(path){
-      const zf = zip.file(path);
-      if (!zf) return null;
-      const blob = await zf.async("blob");
-      return URL.createObjectURL(blob);
-    }
-
-    // Start from current state to preserve runtime refs, then overwrite
-    state = {...state, ...manifest, selection:null};
-
-    // Backgrounds
-    if (manifest.bg?.front?.image) state.bg.front.image = await loadImg(manifest.bg.front.image);
-    else state.bg.front.image = null;
-
-    if (manifest.bg?.back?.image) state.bg.back.image  = await loadImg(manifest.bg.back.image);
-    else state.bg.back.image = null;
-
-    // Sheet pattern
-    if (manifest.sheetPattern?.image){
-      state.sheetPattern.image = await loadImg(manifest.sheetPattern.image);
-    } else {
-      state.sheetPattern.image = null;
-    }
-
-    // Per-card backs
-    if (Array.isArray(manifest.perCard?.images)){
-      const imgs = [];
-      for (const p of manifest.perCard.images){
-        imgs.push(p ? (await loadImg(p)) : null);
-      }
-      state.perCard.images = imgs.filter(Boolean);
-    } else {
-      state.perCard.images = [];
-    }
-
-    // Layer images
-    async function hydrateLayers(side){
-      const layers = state[side].layers || [];
-      for (let i=0;i<layers.length;i++){
-        const L = layers[i];
-        if (L.type === "image" && typeof L.image === "string"){
-          L.image = await loadImg(L.image);
-        }
-      }
-    }
-    await hydrateLayers("front");
-    await hydrateLayers("back");
-
-    // Fonts
-    state.customFonts = state.customFonts || [];
-    if (Array.isArray(manifest.customFonts)){
-      for (const f of manifest.customFonts){
-        if (!f?.path) continue;
-        const url = await blobURL(f.path);
-        if (!url) continue;
-        try{
-          const face = new FontFace(f.name, `url(${url})`);
-          await face.load();
-          document.fonts.add(face);
-          // Keep a reference so future exports can include it again
-          state.customFonts.push({ name:f.name, url, ext: (f.path.match(/\.[a-z0-9]{2,5}$/i)||["",".ttf"])[0] });
-        }catch(err){
-          console.warn("Font failed to load:", f.name, err);
-        }
-      }
-    }
-
-    // Refresh UI / canvases
-    initUIFromState();
-    resizeCanvasToCard();
-    setSide("front");
-    redrawAll();
-    drawOverlay();
-    refreshPrintPreview();
-    update3DTextures(true);
+    await hydrateStateFromZip(zip);
   }catch(err){
     console.error(err);
     alert("Import failed. This file may be corrupted or not a valid .card.");
   }
 });
+
+(btnResetProject) && btnResetProject.addEventListener("click", ()=>{
+  const shouldReset = confirm("Reset the project and clear all layers?");
+  if (!shouldReset) return;
+  state = createEmptyState();
+  normalizeFontAliases(state);
+  renderState(true);
+});
+
+(async function autoLoadDefaultProject(){
+  try{
+    const resp = await fetch("ACME.card", {cache:"no-cache"});
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const JSZip = await ensureJSZip();
+    const zip = await JSZip.loadAsync(blob);
+    await hydrateStateFromZip(zip);
+  }catch(err){
+    console.warn("Default project failed to load:", err);
+  }
+})();
 
   // ---- Preview tabs ABOVE the canvas (thumbnails) ----
   function renderCanvasTabs(){
@@ -1936,12 +2416,7 @@ btnLoadProject.addEventListener("change", async (e)=>{
     gridSpacingInput.value = state.grid.spacingMM;
     backFlipSel.value = state.backFlip;
   }
-  initUIFromState();
-  resizeCanvasToCard();
-  setSide("front");
-  update3DTextures(true);
-  ensurePrintPreview();
-  refreshPrintPreview();
+  renderState();
   preloadPaperTextures(()=>{
     installPaperSelector();
     // default to white if not set
