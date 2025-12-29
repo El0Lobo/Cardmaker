@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ACME's Business Card Maker</title>
-  <link rel="preload" href="OlivettiLettera22Typewriter.ttf" as="font" type="font/ttf" crossorigin />
-  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
-  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
-  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
+  <link rel="preload" href="static/fonts/OlivettiLettera22Typewriter.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="apple-touch-icon" sizes="180x180" href="static/img/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="static/img/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="static/img/favicon-16x16.png" />
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/monolith.min.css"/>
   <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
-  <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin" data-role="tinymce"></script>
+  <script src="node_modules/tinymce/tinymce.min.js" data-role="tinymce"></script>
 </head>
 <body>
   <header class="app-header">
@@ -233,13 +233,16 @@
     <section class="stage">
       <!-- JS will inject the thumbnail-based canvas tabs here -->
       <div class="canvas-tabs"></div>
-
+      <div class="tip-tray">
+        <span class="hint-tip" tabindex="0" data-tip="Use the arrow keys to nudge the selected layer. Hold Shift + Arrow for 5× larger nudges.">Move with Arrow Keys</span>
+        <span class="hint-tip" tabindex="0" data-tip="Double-click any text layer on the canvas to open TinyMCE inline editing right where it sits.">Double-Click to Edit Text</span>
+      </div>
+      <div id="tinyToolbarDock" class="tiny-toolbar-host" aria-live="polite"></div>
       <div class="canvas-wrap">
         <div class="canvas-holder">
           <canvas id="canvasFront" width="1200" height="776"></canvas>
           <canvas id="canvasBack" width="1200" height="776" class="hidden"></canvas>
           <div id="overlay" class="overlay"></div>
-          <div id="inlineEditorToolbar" class="inline-toolbar hidden"></div>
           <div id="canvasTextEditor" class="canvas-inline-editor" contenteditable="true" spellcheck="false"></div>
         </div>
       </div>
@@ -268,7 +271,7 @@
       Visit acme-prototypes.com<br>for more free stuff like this!
     </a>
     <a class="footer-logo" href="https://acme-prototypes.com/" target="_blank" rel="noopener">
-      <img src="ⒶCME.svg" alt="ACME Prototypes" class="brand-mark" />
+      <img src="static/img/acme-logo.svg" alt="ACME Prototypes" class="brand-mark" />
     </a>
   </footer>
 

@@ -48,7 +48,6 @@
   const textControls = $("#textControls");
   const textContent = $("#textContent");
   const canvasTextEditor = $("#canvasTextEditor");
-  const inlineEditorToolbar = $("#inlineEditorToolbar");
   const fontFamily = $("#fontFamily");
   const fontSize = $("#fontSize");
   const fontWeight = $("#fontWeight");
@@ -157,6 +156,7 @@
   let inlineEditingLayerId = null;
   let tinyOverlayEditor = null;
   let tinyOverlayInitPromise = null;
+  let tinyDefaultsPatched = false;
   const FONT_SIZE_OPTIONS = [4,6,8,10,12,14,16,18,24,32];
   const inlineEditorIsVisible = ()=>!!(inlineEditingLayerId && canvasTextEditor && canvasTextEditor.classList.contains("active"));
 // === Inject Sheet Pattern Opacity control (0..1) ===
@@ -504,6 +504,11 @@ function installPaperSelector(){
     ctx.drawImage(img, -img.width/2, -img.height/2);
 
   } else if (layer.type === "text"){
+    const isCanvasCtx = (ctx.canvas === canvasFront || ctx.canvas === canvasBack);
+    if (isCanvasCtx && inlineEditingLayerId && layer.id === inlineEditingLayerId){
+      ctx.restore();
+      return;
+    }
     const fontPx = Math.round(mmToPx(layer.fontSize));
     const px = Math.max(8, fontPx);
     const fontStyle = layer.fontStyle && layer.fontStyle !== "normal" ? `${layer.fontStyle} ` : "";
@@ -1177,17 +1182,38 @@ pickrBack.on('save', (color, instance)=>{
   function ensureTinyOverlayEditor(){
     if (tinyOverlayEditor) return Promise.resolve(tinyOverlayEditor);
     if (tinyOverlayInitPromise) return tinyOverlayInitPromise;
+    console.log("[TinyInline] init requested", { scriptPresent: typeof tinymce !== "undefined" });
     tinyOverlayInitPromise = loadTinyScript().then(()=>{
+      if (typeof tinymce !== "undefined" && !tinyDefaultsPatched && typeof tinymce.overrideDefaults === "function"){
+        try{
+          tinymce.overrideDefaults({
+            ...(tinymce.defaultOptions || {}),
+            forced_plugins: "",
+            base_url: "node_modules/tinymce",
+            suffix: ".min"
+          });
+          tinyDefaultsPatched = true;
+          console.log("[TinyInline] defaults overridden", { forcedPlugins: tinymce.defaultOptions?.forced_plugins });
+        }catch(err){
+          console.warn("[TinyInline] overrideDefaults failed", err);
+        }
+      }
       const baseConfig = {
         target: canvasTextEditor,
         inline: true,
+        fixed_toolbar_container: "#tinyToolbarDock",
         menubar: "file edit view insert format tools table help",
-        toolbar_mode: "sliding",
+        plugins: "advlist anchor autolink charmap code fullscreen help insertdatetime link lists preview searchreplace table visualblocks wordcount",
+        toolbar_mode: "wrap",
         toolbar_sticky: true,
         toolbar: "undo redo | cardfont cardfontsize | bold italic underline | cardalign | bullist numlist outdent indent | cardcolor | removeformat",
         skin: "oxide-dark",
         content_css: false,
+        base_url: "node_modules/tinymce",
+        suffix: ".min",
+        license_key: "gpl",
         setup(editor){
+          console.log("[TinyInline] tinymce init setup start");
           registerTinyToolbar(editor);
           editor.on("input change keyup", ()=>{
             if (!inlineEditingLayerId) return;
@@ -1214,12 +1240,14 @@ pickrBack.on('save', (color, instance)=>{
           });
         }
       };
-      if (inlineEditorToolbar){
-        baseConfig.fixed_toolbar_container = "#inlineEditorToolbar";
-      }
       return tinymce.init(baseConfig);
     }).then(editors=>{
       tinyOverlayEditor = editors[0];
+      const dock = document.querySelector("#tinyToolbarDock");
+      console.log("[TinyInline] tinymce init completed", {
+        editor: tinyOverlayEditor?.id,
+        toolbarDocked: !!(dock && dock.querySelector(".tox-tinymce"))
+      });
       tinyOverlayInitPromise = null;
       return tinyOverlayEditor;
     }).catch(err=>{
@@ -1297,24 +1325,24 @@ pickrBack.on('save', (color, instance)=>{
     target.style.fontWeight = layer.fontWeight;
     target.style.fontStyle = layer.fontStyle || "normal";
     target.style.textAlign = layer.align;
-    target.style.color = "transparent";
+    target.style.color = caretColor;
     target.style.background = "transparent";
     target.style.textShadow = "none";
+    if (canvasTextEditor) canvasTextEditor.style.setProperty("--inline-text-color", caretColor);
     target.style.caretColor = caretColor;
+    if (canvasTextEditor) canvasTextEditor.style.setProperty("--inline-caret", caretColor);
   }
   async function openInlineCanvasEditor(){
     const l = getSelection();
     if (!l || l.type!=="text" || !canvasTextEditor || !selectionOverlayRect) return;
     inlineEditingLayerId = l.id;
+    redrawAll();
+    drawOverlay();
     canvasTextEditor.classList.add("active");
     updateInlineEditorPosition();
     canvasTextEditor.dataset.layerId = l.id;
     canvasTextEditor.style.display = "block";
     canvasTextEditor.textContent = l.text || "";
-    if (inlineEditorToolbar){
-      inlineEditorToolbar.classList.add("visible");
-      inlineEditorToolbar.classList.remove("hidden");
-    }
     try{
       const editor = await ensureTinyOverlayEditor();
       editor.setContent(textToHtml(l.text || ""));
@@ -1345,10 +1373,6 @@ pickrBack.on('save', (color, instance)=>{
     canvasTextEditor.style.display = "none";
     canvasTextEditor.classList.remove("active");
     canvasTextEditor.textContent = "";
-    if (inlineEditorToolbar){
-      inlineEditorToolbar.classList.remove("visible");
-      inlineEditorToolbar.classList.add("hidden");
-    }
     redrawAll();
     drawOverlay();
   }
@@ -2357,7 +2381,7 @@ btnLoadProject.addEventListener("change", async (e)=>{
 
 (async function autoLoadDefaultProject(){
   try{
-    const resp = await fetch("ACME.card", {cache:"no-cache"});
+    const resp = await fetch("static/demo/ACME.card", {cache:"no-cache"});
     if (!resp.ok) return;
     const blob = await resp.blob();
     const JSZip = await ensureJSZip();
@@ -2431,7 +2455,7 @@ btnLoadProject.addEventListener("change", async (e)=>{
 
     if (e.key==="Delete"){ e.preventDefault(); btnDelete.click(); return; }
     if (e.key==="[" ){ btnSendBack.click(); return; }
-    if (e.key()==="]"){ btnBringFwd.click(); return; }
+    if (e.key==="]"){ btnBringFwd.click(); return; }
   });
 // --- FONT UPLOAD HANDLER (robust) ---
 const fontFamilySelect = document.getElementById("fontFamily");
