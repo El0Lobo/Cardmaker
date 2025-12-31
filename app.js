@@ -1204,7 +1204,7 @@ pickrBack.on('save', (color, instance)=>{
         fixed_toolbar_container: "#tinyToolbarDock",
         menubar: "file edit view insert format tools table help",
         plugins: "advlist anchor autolink charmap code fullscreen help insertdatetime link lists preview searchreplace table visualblocks wordcount",
-        toolbar_mode: "wrap",
+        toolbar_mode: "sliding",
         toolbar_sticky: true,
         toolbar: "undo redo | cardfont cardfontsize | bold italic underline | cardalign | bullist numlist outdent indent | cardcolor | removeformat",
         skin: "oxide-dark",
